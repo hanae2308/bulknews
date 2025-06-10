@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Email Header Transformer</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f0f4f8;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+
+    .uploader {
+      border: 2px dashed #888;
+      background: white;
+      padding: 40px;
+      border-radius: 10px;
+      text-align: center;
+      width: 90%;
+      max-width: 600px;
+      margin-bottom: 20px;
+    }
+
+    .uploader.dragover {
+      border-color: #0066ff;
+      background: #e8f0ff;
+    }
+
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    button {
+      background-color: #0066ff;
+      color: white;
+      padding: 12px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    button:hover {
+      background-color: #0052cc;
+    }
+
+    #ipBtn {
+      background-color: #ff9800;
+    }
+
+    #ipBtn:hover {
+      background-color: #e07c00;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    label {
+      display: inline-block;
+      cursor: pointer;
+      color: #0066ff;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Bulk 	Newsletters Header Transformer</h1>
+
+  <div class="uploader" id="dropArea">
+    <p>Drag and drop your .eml files here</p>
+    <p>or</p>
+    <label for="fileInput">Browse Files</label>
+    <input type="file" id="fileInput" multiple accept=".eml">
+  </div>
+
+  <div class="button-group">
+    <button id="transformBtn">Transform Headers</button>
+    <button id="ipBtn">Transform + Add [IP]</button>
+  </div>
+
+  <script>
+    let filesToProcess = [];
+
+    const dropArea = document.getElementById("dropArea");
+    const fileInput = document.getElementById("fileInput");
+
+    // Drag and Drop support
+    ["dragenter", "dragover"].forEach(event =>
+      dropArea.addEventListener(event, e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropArea.classList.add("dragover");
+      })
+    );
+
+    ["dragleave", "drop"].forEach(event =>
+      dropArea.addEventListener(event, e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropArea.classList.remove("dragover");
+      })
+    );
+
+    dropArea.addEventListener("drop", e => {
+      filesToProcess = [...e.dataTransfer.files].filter(f => f.name.endsWith(".eml"));
+    });
+
+    fileInput.addEventListener("change", e => {
+      filesToProcess = [...e.target.files].filter(f => f.name.endsWith(".eml"));
+    });
+
+    document.getElementById("transformBtn").onclick = () => processFiles(false);
+    document.getElementById("ipBtn").onclick = () => processFiles(true);
+
+    function processFiles(addIP) {
+      if (filesToProcess.length === 0) {
+        alert("Please upload .eml files first.");
+        return;
+      }
+
+      const zip = new JSZip();
+
+      Promise.all(filesToProcess.map(file => {
+        return file.text().then(content => {
+          let output = content;
+
+          output = output.replace(/^Delivered-To:.*\n?/gim, '');
+          output = output.replace(/^Return-Path:.*\n?/gim, '');
+
+          output = output.replace(/(From:\s*.*?<[^@<\s]+)@[^>\s]+/gi, '$1@[RDNS]');
+          output = output.replace(/(From:\s*[^<\s@]+)@([^\s]+)/gi, '$1@[RDNS]');
+
+          output = output.replace(/(Sender:\s*.*?<[^@<\s]+)@[^>\s]+/gi, '$1@[RDNS]');
+          output = output.replace(/(Sender:\s*[^<\s@]+)@([^\s]+)/gi, '$1@[RDNS]');
+
+          output = output.replace(/(Message-ID:\s*<)([^@]+)(@[^>]+>)/gi, (_, prefix, id, suffix) => {
+            const pos = Math.max(1, Math.floor(Math.random() * id.length));
+            return prefix + id.slice(0, pos) + '[EID]' + id.slice(pos) + suffix;
+          });
+
+          if (addIP) {
+            output = output.replace(/^(Subject:.*?)$/im, (_, subject) =>
+              subject.includes('[IP]') ? subject : subject + ' [IP]'
+            );
+          }
+
+          zip.file(file.name, output);
+        });
+      })).then(() => {
+        zip.generateAsync({ type: "blob" }).then(content => {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(content);
+          a.download = "transformed_headers.zip";
+          a.click();
+        });
+      });
+    }
+  </script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</body>
+</html>
