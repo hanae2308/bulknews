@@ -41,6 +41,7 @@
       flex-wrap: wrap;
       justify-content: center;
       gap: 10px;
+      margin-bottom: 20px;
     }
 
     button {
@@ -66,6 +67,14 @@
       background-color: #e07c00;
     }
 
+    #templateBtn {
+      background-color: #4CAF50;
+    }
+
+    #templateBtn:hover {
+      background-color: #3e8e41;
+    }
+
     input[type="file"] {
       display: none;
     }
@@ -76,11 +85,29 @@
       color: #0066ff;
       margin-top: 10px;
     }
+
+    textarea {
+      width: 90%;
+      max-width: 600px;
+      height: 150px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      font-family: 'Segoe UI', sans-serif;
+    }
+
+    .template-container {
+      display: none;
+      width: 90%;
+      max-width: 600px;
+      margin-bottom: 20px;
+    }
   </style>
 </head>
 <body>
 
-  <h1>Bulk 	Newsletters Header Transformer</h1>
+  <h1>Bulk Newsletters Header Transformer</h1>
 
   <div class="uploader" id="dropArea">
     <p>Drag and drop your .eml files here</p>
@@ -92,6 +119,12 @@
   <div class="button-group">
     <button id="transformBtn">Transform Headers</button>
     <button id="ipBtn">Transform + Add [IP]</button>
+    <button id="templateBtn">Use Template</button>
+  </div>
+
+  <div class="template-container" id="templateContainer">
+    <textarea id="templateInput" placeholder="Enter your template text here. Use [newsletter] where you want the processed email content to appear."></textarea>
+    <button id="processTemplateBtn">Process with Template</button>
   </div>
 
   <script>
@@ -99,6 +132,14 @@
 
     const dropArea = document.getElementById("dropArea");
     const fileInput = document.getElementById("fileInput");
+    const templateBtn = document.getElementById("templateBtn");
+    const templateContainer = document.getElementById("templateContainer");
+    const processTemplateBtn = document.getElementById("processTemplateBtn");
+
+    // Toggle template input visibility
+    templateBtn.addEventListener("click", () => {
+      templateContainer.style.display = templateContainer.style.display === "block" ? "none" : "block";
+    });
 
     // Drag and Drop support
     ["dragenter", "dragover"].forEach(event =>
@@ -127,6 +168,33 @@
 
     document.getElementById("transformBtn").onclick = () => processFiles(false);
     document.getElementById("ipBtn").onclick = () => processFiles(true);
+    processTemplateBtn.onclick = () => processWithTemplate();
+
+    function transformContent(content, addIP) {
+      let output = content;
+
+      output = output.replace(/^Delivered-To:.*\n?/gim, '');
+      output = output.replace(/^Return-Path:.*\n?/gim, '');
+
+      output = output.replace(/(From:\s*.*?<[^@<\s]+)@[^>\s]+/gi, '$1@[RDNS]');
+      output = output.replace(/(From:\s*[^<\s@]+)@([^\s]+)/gi, '$1@[RDNS]');
+
+      output = output.replace(/(Sender:\s*.*?<[^@<\s]+)@[^>\s]+/gi, '$1@[RDNS]');
+      output = output.replace(/(Sender:\s*[^<\s@]+)@([^\s]+)/gi, '$1@[RDNS]');
+
+      output = output.replace(/(Message-ID:\s*<)([^@]+)(@[^>]+>)/gi, (_, prefix, id, suffix) => {
+        const pos = Math.max(1, Math.floor(Math.random() * id.length));
+        return prefix + id.slice(0, pos) + '[EID]' + id.slice(pos) + suffix;
+      });
+
+      if (addIP) {
+        output = output.replace(/^(Subject:.*?)$/im, (_, subject) =>
+          subject.includes('[IP]') ? subject : subject + ' [IP]'
+        );
+      }
+
+      return output;
+    }
 
     function processFiles(addIP) {
       if (filesToProcess.length === 0) {
@@ -138,28 +206,7 @@
 
       Promise.all(filesToProcess.map(file => {
         return file.text().then(content => {
-          let output = content;
-
-          output = output.replace(/^Delivered-To:.*\n?/gim, '');
-          output = output.replace(/^Return-Path:.*\n?/gim, '');
-
-          output = output.replace(/(From:\s*.*?<[^@<\s]+)@[^>\s]+/gi, '$1@[RDNS]');
-          output = output.replace(/(From:\s*[^<\s@]+)@([^\s]+)/gi, '$1@[RDNS]');
-
-          output = output.replace(/(Sender:\s*.*?<[^@<\s]+)@[^>\s]+/gi, '$1@[RDNS]');
-          output = output.replace(/(Sender:\s*[^<\s@]+)@([^\s]+)/gi, '$1@[RDNS]');
-
-          output = output.replace(/(Message-ID:\s*<)([^@]+)(@[^>]+>)/gi, (_, prefix, id, suffix) => {
-            const pos = Math.max(1, Math.floor(Math.random() * id.length));
-            return prefix + id.slice(0, pos) + '[EID]' + id.slice(pos) + suffix;
-          });
-
-          if (addIP) {
-            output = output.replace(/^(Subject:.*?)$/im, (_, subject) =>
-              subject.includes('[IP]') ? subject : subject + ' [IP]'
-            );
-          }
-
+          const output = transformContent(content, addIP);
           zip.file(file.name, output);
         });
       })).then(() => {
@@ -167,6 +214,41 @@
           const a = document.createElement("a");
           a.href = URL.createObjectURL(content);
           a.download = "transformed_headers.zip";
+          a.click();
+        });
+      });
+    }
+
+    function processWithTemplate() {
+      if (filesToProcess.length === 0) {
+        alert("Please upload .eml files first.");
+        return;
+      }
+
+      const template = document.getElementById("templateInput").value;
+      if (!template) {
+        alert("Please enter a template.");
+        return;
+      }
+
+      if (!template.includes("[newsletter]")) {
+        alert('Template must include "[newsletter]" placeholder.');
+        return;
+      }
+
+      const zip = new JSZip();
+
+      Promise.all(filesToProcess.map(file => {
+        return file.text().then(content => {
+          const transformedContent = transformContent(content, false);
+          const finalContent = template.replace("[newsletter]", transformedContent);
+          zip.file(file.name, finalContent);
+        });
+      })).then(() => {
+        zip.generateAsync({ type: "blob" }).then(content => {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(content);
+          a.download = "templated_emails.zip";
           a.click();
         });
       });
